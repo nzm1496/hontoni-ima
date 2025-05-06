@@ -1,199 +1,124 @@
+<!-- Firebase + ランキング機能付き index.html -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <title>ホントに今！？</title>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
   <style>
-    body {
-      font-family: 'Arial', sans-serif;
-      text-align: center;
-      margin-top: 60px;
-      background-color: #fffce6;
-    }
-    .hidden {
-      display: none;
-    }
-    #title-screen {
-      padding: 40px;
-    }
-    #game-area {
-      margin-top: 40px;
-    }
-    #message {
-      font-size: 48px;
-      margin: 30px;
-      padding: 20px;
-      border-radius: 12px;
-      display: inline-block;
-    }
-    #score, #highscore, #timer {
-      font-size: 24px;
-      margin: 10px;
-    }
-    button {
-      font-size: 24px;
-      padding: 12px 24px;
-      margin-top: 20px;
-      cursor: pointer;
-      border-radius: 12px;
-      border: none;
-    }
-    #start-button {
-      background-color: #90ee90;
-    }
-    #tap-button {
-      background-color: #87cefa;
-    }
-    #restart-button {
-      background-color: #ffa07a;
-      display: none;
-    }
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; background: #fffce6; }
+    #ranking-area { margin-top: 40px; }
+    button { font-size: 20px; margin: 10px; padding: 10px 20px; border-radius: 10px; }
+    input { padding: 8px; font-size: 18px; }
   </style>
 </head>
 <body>
-
-  <!-- タイトル画面 -->
-  <div id="title-screen">
-    <h1>🕹 ホントに今！？</h1>
-    <p>画面に「今！」と出たら即タップ！</p>
-    <p>でもフェイントに注意。音や色やボタンも惑わしてくるかも！？</p>
-    <p>30秒で高スコアを目指そう🔥</p>
-    <button id="start-button" onclick="showGame()">スタート</button>
+  <h1>ホントに今！？🔥</h1>
+  <div>
+    <p>ニックネーム（ランキングに記録されます）</p>
+    <input type="text" id="nickname" placeholder="例: めいたん" />
+    <br><br>
+    <button onclick="startGame()">ゲームスタート</button>
   </div>
 
-  <!-- ゲーム画面 -->
-  <div id="game-area" class="hidden">
-    <div id="timer">残り: 30 秒</div>
-    <div id="score">スコア: 0</div>
-    <div id="highscore">ハイスコア: 0</div>
-    <div id="message">準備中…</div><br>
-    <button id="tap-button" onclick="handleClick()">タップ！</button>
-    <button id="restart-button">もう一度遊ぶ</button>
+  <div id="game-area" style="display:none">
+    <h2 id="message">準備中…</h2>
+    <div>スコア: <span id="score">0</span></div>
+    <div>タイマー: <span id="timer">30</span>秒</div>
+    <button id="tap-button" onclick="handleTap()">タップ！</button>
   </div>
 
-  <!-- 音声 -->
-  <audio id="sound-now" src="now.wav"></audio>
-  <audio id="sound-not" src="not-now.wav"></audio>
-  <audio id="bgm" src="bgm.mp3" loop></audio>
+  <div id="ranking-area">
+    <h2>🏆 ランキング</h2>
+    <ol id="ranking-list"></ol>
+  </div>
 
   <script>
-    let isNow = false;
+    const firebaseConfig = {
+      apiKey: "AIzaSyACaSgxm_X4Tnui4VSyUF9aMdCjYSssfLQ",
+      authDomain: "cyo-ima.firebaseapp.com",
+      projectId: "cyo-ima",
+      storageBucket: "cyo-ima.appspot.com",
+      messagingSenderId: "224682082263",
+      appId: "1:224682082263:web:4a631a3571932ee6e21592",
+      measurementId: "G-F0XBGLK752"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
     let score = 0;
-    let highscore = parseInt(localStorage.getItem("highscore")) || 0;
-    let intervalTime = 1000;
     let timer = 30;
-    let gameInterval, countdownInterval;
-    let superNowMode = false;
-
-    const titleScreen = document.getElementById("title-screen");
-    const gameArea = document.getElementById("game-area");
-    const messageEl = document.getElementById("message");
-    const scoreEl = document.getElementById("score");
-    const highscoreEl = document.getElementById("highscore");
-    const timerEl = document.getElementById("timer");
-    const soundNow = document.getElementById("sound-now");
-    const soundNot = document.getElementById("sound-not");
-    const bgm = document.getElementById("bgm");
-    const tapButton = document.getElementById("tap-button");
-    const restartButton = document.getElementById("restart-button");
-
-    bgm.volume = 0.05; // 音量さらに小さく
-
-    // タイトル画面からゲーム開始
-    function showGame() {
-      titleScreen.classList.add("hidden");
-      gameArea.classList.remove("hidden");
-      bgm.pause(); // ゲーム中はBGM停止
-      bgm.currentTime = 0;
-      startGame();
-    }
-
-    function updateMessage() {
-      isNow = Math.random() < 0.5;
-
-      if (score >= 15 && !superNowMode) {
-        superNowMode = true;
-        intervalTime = 600;
-        messageEl.style.border = "4px solid gold";
-        messageEl.style.boxShadow = "0 0 20px gold";
-      }
-
-      const text = isNow ? (superNowMode ? "🔥超今！！🔥" : "今！") : "今じゃない！";
-      messageEl.textContent = text;
-
-      const isColorFake = Math.random() < 0.5;
-      messageEl.style.backgroundColor = ((isNow && isColorFake) || (!isNow && !isColorFake)) ? "#ff6666" : "#66ff66";
-
-      const isSoundFake = Math.random() < 0.5;
-      ((isNow && isSoundFake) || (!isNow && !isSoundFake)) ? soundNot.play() : soundNow.play();
-
-      const isButtonFake = Math.random() < 0.5;
-      tapButton.textContent = ((isNow && isButtonFake) || (!isNow && !isButtonFake))
-        ? "ダメ！！"
-        : (superNowMode ? "超今タップ！！🔥" : "押せ！！");
-      tapButton.style.backgroundColor = tapButton.textContent === "ダメ！！" ? "#ff4444" : "#44ff44";
-    }
-
-    function handleClick() {
-      if (timer <= 0) return;
-      score += isNow ? 1 : -3;
-      score = Math.max(0, score);
-      scoreEl.textContent = `スコア: ${score}`;
-    }
+    let interval;
+    let isNow = false;
 
     function startGame() {
+      const nick = document.getElementById("nickname").value.trim();
+      if (!nick) {
+        alert("ニックネームを入力してください");
+        return;
+      }
+      document.querySelector("#game-area").style.display = "block";
+      document.querySelector("#message").textContent = "スタート！";
       score = 0;
       timer = 30;
-      superNowMode = false;
-      intervalTime = 1000;
-      tapButton.disabled = false;
-      tapButton.textContent = "タップ！";
-      messageEl.style = "";
-      messageEl.style.backgroundColor = "#fff";
-      scoreEl.textContent = `スコア: ${score}`;
-      timerEl.textContent = `残り: ${timer} 秒`;
-      highscoreEl.textContent = `ハイスコア: ${highscore}`;
-      restartButton.style.display = "none";
+      document.querySelector("#score").textContent = score;
+      document.querySelector("#timer").textContent = timer;
+      interval = setInterval(updateGame, 1000);
+      showMessage();
+    }
 
-      updateMessage();
-      gameInterval = setInterval(updateMessage, intervalTime);
-      countdownInterval = setInterval(() => {
-        timer--;
-        timerEl.textContent = `残り: ${timer} 秒`;
-        if (timer <= 0) {
-          clearInterval(gameInterval);
-          clearInterval(countdownInterval);
-          endGame();
-        }
-      }, 1000);
+    function updateGame() {
+      timer--;
+      document.querySelector("#timer").textContent = timer;
+      if (timer <= 0) {
+        clearInterval(interval);
+        endGame();
+      } else {
+        showMessage();
+      }
+    }
+
+    function showMessage() {
+      isNow = Math.random() < 0.5;
+      document.querySelector("#message").textContent = isNow ? "今！" : "今じゃない！";
+    }
+
+    function handleTap() {
+      if (timer <= 0) return;
+      score += isNow ? 1 : -3;
+      if (score < 0) score = 0;
+      document.querySelector("#score").textContent = score;
     }
 
     function endGame() {
-      messageEl.textContent = "終了！";
-      messageEl.style.backgroundColor = "#ccc";
-      tapButton.disabled = true;
-      restartButton.style.display = "inline-block";
-      if (score > highscore) {
-        highscore = score;
-        localStorage.setItem("highscore", highscore);
-        highscoreEl.textContent = `ハイスコア: ${highscore}`;
-        alert("ハイスコア更新！🎉");
-      } else {
-        alert("時間切れ！😎");
-      }
+      document.querySelector("#message").textContent = "終了！";
+      const nick = document.getElementById("nickname").value.trim();
+      db.collection("scores").add({
+        name: nick,
+        score: score,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).then(loadRanking);
     }
 
-    restartButton.addEventListener("click", () => {
-      gameArea.classList.add("hidden");
-      titleScreen.classList.remove("hidden");
-      bgm.currentTime = 0;
-      bgm.play(); // タイトル戻ったら再びBGM
-    });
+    function loadRanking() {
+      db.collection("scores")
+        .orderBy("score", "desc")
+        .limit(10)
+        .get()
+        .then(snapshot => {
+          const list = document.getElementById("ranking-list");
+          list.innerHTML = "";
+          snapshot.forEach(doc => {
+            const data = doc.data();
+            const li = document.createElement("li");
+            li.textContent = `${data.name}：${data.score}点`;
+            list.appendChild(li);
+          });
+        });
+    }
 
-    // 最初のタイトルでBGM再生
-    window.addEventListener("load", () => {
-      bgm.play().catch(() => {}); // ユーザー操作までブロックされることもあるためtry
-    });
+    window.onload = loadRanking;
   </script>
 </body>
 </html>
